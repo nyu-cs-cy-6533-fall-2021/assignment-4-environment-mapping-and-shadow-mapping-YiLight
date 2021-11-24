@@ -6,6 +6,8 @@
 #include <sstream>
 #include <unordered_map>
 #include <cmath>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #ifdef __APPLE__
 #define GL_SILENCE_DEPRECATION
@@ -70,6 +72,9 @@ glm::vec3 light_source = glm::vec3(2.0f);
 float near_plane = 1.0f, far_plane = 7.5f;
 glm::mat4 light_projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
 
+// shadow mode
+int shadow_mode = 1;
+
 static const float unit_cube[] = {
         -0.5f,-0.5f,-0.5f, // triangle 1 : begin
         -0.5f,-0.5f, 0.5f,
@@ -120,13 +125,6 @@ bool in_triangle(glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 inter) {
     float ai13 = sqrt(si13*(si13 - ei1)*(si13 - ei3)*(si13 - e13));
     float ai23 = sqrt(si23*(si23 - ei2)*(si23 - ei3)*(si23 - e23));
     float a123 = sqrt(s123*(s123 - e12)*(s123 - e13)*(s123 - e23));
-
-//    printf("v1: %f, %f, %f\n", v1[0], v1[1], v1[2]);
-//    printf("v2: %f, %f, %f\n", v2[0], v2[1], v2[2]);
-//    printf("v3: %f, %f, %f\n", v3[0], v3[1], v3[2]);
-//    printf("inter: %f, %f, %f\n", inter[0], inter[1], inter[2]);
-//    printf("area: %f, %f, %f\n", ai12, ai13, ai23);
-//    printf("%f, %f\t%f\n\n", ai12+ai13+ai23, a123, ai12+ai13+ai23 - a123);
 
     return abs(ai12 + ai13 + ai23 - a123) < 0.000001f;
 }
@@ -260,6 +258,115 @@ void load_model(const std::string& path) {
     in.close();
 }
 
+GLuint load_cube() {
+    GLuint id;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+
+    std::string suffixes[] = {"posx", "negx", "posy", "negy", "posz", "negz"};
+    GLuint targets[] = {
+            GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+            GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+            GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+    };
+
+    GLint w, h, ch;
+
+    for(int i=0;i<6;i++) {
+        std::string name = "../data/" + suffixes[i] + ".png";
+        unsigned char *data = stbi_load(name.c_str(), &w, &h, &ch, 0);
+        glTexImage2D(targets[i], 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        stbi_image_free(data);
+    }
+
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    return id;
+}
+
+void add_plain() {
+    // put the base plain
+    V.emplace_back(glm::vec3(3, -0.5, 3));
+    V.emplace_back(glm::vec3(3, -0.5, -3));
+    V.emplace_back(glm::vec3(-3, -0.5, 3));
+    V.emplace_back(glm::vec3(-3, -0.5, -3));
+    V.emplace_back(glm::vec3(3, -0.5, -3));
+    V.emplace_back(glm::vec3(-3, -0.5, 3));
+
+    for(int i=0;i<6;i++) {
+        N_f.emplace_back(glm::vec3(0, 1, 0));
+        M.emplace_back(glm::vec3(0, -0.5, 0));
+        N_p.emplace_back(glm::vec3(0, 1, 0));
+    }
+    VBO.update(V);
+    VBO_M.update(M);
+    VBO_N_f.update(N_f);
+    VBO_N_p.update(N_p);
+
+    base_color.emplace_back(1.0f);
+    model.emplace_back(1.0f);
+    numbers.emplace_back(6);
+    render_mode.emplace_back(3);
+}
+
+void add_cube(int scale) {
+    std::unordered_map<glm::vec3, std::vector<glm::vec3>, vecHash> normal_map;
+    int start = 0;
+
+    for (int i = 0; i < 108; i += 9) {
+        glm::vec3 v1 = glm::vec3(unit_cube[i], unit_cube[i + 1], unit_cube[i + 2]).operator*=(scale);
+        glm::vec3 v2 = glm::vec3(unit_cube[i + 3], unit_cube[i + 4], unit_cube[i + 5]).operator*=(scale);
+        glm::vec3 v3 = glm::vec3(unit_cube[i + 6], unit_cube[i + 7], unit_cube[i + 8]).operator*=(scale);
+
+        V.emplace_back(v1);
+        V.emplace_back(v2);
+        V.emplace_back(v3);
+
+        // append flat normal
+        glm::vec3 triangle_normal = glm::normalize(glm::cross(v2 - v1, v3 - v1));
+        N_f.emplace_back(triangle_normal);
+        N_f.emplace_back(triangle_normal);
+        N_f.emplace_back(triangle_normal);
+
+        // append mid of triangles
+        glm::vec3 mid = (v1 + v2 + v3)/3.0f;
+        M.emplace_back(mid);
+        M.emplace_back(mid);
+        M.emplace_back(mid);
+
+        normal_map[v1].emplace_back(triangle_normal);
+        normal_map[v2].emplace_back(triangle_normal);
+        normal_map[v3].emplace_back(triangle_normal);
+    }
+
+    for(int i: numbers) start += i;
+
+    for(int i=0;i<36;i++) {
+        glm::vec3 cur = V.at(start+i);
+        glm::vec3 phong_normal = glm::vec3(0.0f);
+        for(auto v: normal_map[cur]) {
+            phong_normal += v;
+        }
+        phong_normal /= normal_map[cur].size();
+
+        N_p.emplace_back(glm::normalize(phong_normal));
+    }
+
+    base_color.emplace_back(1.0f);
+    model.emplace_back(1.0f);
+    numbers.emplace_back(36);
+    render_mode.emplace_back(3);
+
+    VBO.update(V);
+    VBO_M.update(M);
+    VBO_N_f.update(N_f);
+    VBO_N_p.update(N_p);
+}
+
 // Callbacks
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -267,7 +374,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     window_height = height;
 
     if(is_perspective) {
-        projection = glm::perspective(glm::radians(45.0f), window_width/window_height, 1.0f, 100.0f);
+        projection = glm::perspective(glm::radians(45.0f), window_width/window_height, 0.1f, 100.0f);
     } else {
         projection = glm::ortho(-window_width/window_height, window_width/window_height, -1.0f, 1.0f, 0.1f, 100.0f);
     }
@@ -293,8 +400,8 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             t = glm::inverse(camera) * glm::vec4(t[0], t[1], -1.0f, 0.0f);
             glm::vec3 ray_direction = glm::normalize(glm::vec3(t));
 
-            int start = 0;
-            for (int i = 1; i < numbers.size(); i++) {
+            int start = 42;
+            for (int i = 2; i < numbers.size(); i++) {
                 for (int j = 0; j < numbers[i]; j += 3) {
                     // get the figure's current position in world
                     glm::vec3 v1 = model[i] * glm::vec4(V[start + j], 1.0f);
@@ -345,8 +452,8 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             // ray origin (clicked point)
             glm::vec3 origin = glm::vec3(o_x, o_y, o_z);
 
-            int start = 0;
-            for(int i=1;i<numbers.size();i++) {
+            int start = 42;
+            for(int i=2;i<numbers.size();i++) {
                 for(int j=0;j<numbers[i];j+=3) {
                     // get the figure's current position in world
                     glm::vec3 v1 = model[i] * glm::vec4(V[start+j], 1.0f);
@@ -375,7 +482,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         }
     } else if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
         // right button to remove all selection
-        for(int i=1;i<base_color.size();i++) {
+        for(int i=2;i<base_color.size();i++) {
             base_color[i] = glm::vec3(1.0f);
         }
     }
@@ -404,53 +511,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     // Update the mode
     if(action == GLFW_PRESS) {
-        std::unordered_map<glm::vec3, std::vector<glm::vec3>, vecHash> normal_map;
-        int start = 0;
         switch (key) {
             case GLFW_KEY_1:
-                for (int i = 0; i < 108; i += 9) {
-                    glm::vec3 v1 = glm::vec3(unit_cube[i], unit_cube[i + 1], unit_cube[i + 2]);
-                    glm::vec3 v2 = glm::vec3(unit_cube[i + 3], unit_cube[i + 4], unit_cube[i + 5]);
-                    glm::vec3 v3 = glm::vec3(unit_cube[i + 6], unit_cube[i + 7], unit_cube[i + 8]);
-
-                    V.emplace_back(v1);
-                    V.emplace_back(v2);
-                    V.emplace_back(v3);
-
-                    // append flat normal
-                    glm::vec3 triangle_normal = glm::normalize(glm::cross(v2 - v1, v3 - v1));
-                    N_f.emplace_back(triangle_normal);
-                    N_f.emplace_back(triangle_normal);
-                    N_f.emplace_back(triangle_normal);
-
-                    // append mid of triangles
-                    glm::vec3 mid = (v1 + v2 + v3)/3.0f;
-                    M.emplace_back(mid);
-                    M.emplace_back(mid);
-                    M.emplace_back(mid);
-
-                    normal_map[v1].emplace_back(triangle_normal);
-                    normal_map[v2].emplace_back(triangle_normal);
-                    normal_map[v3].emplace_back(triangle_normal);
-                }
-
-                for(int i: numbers) start += i;
-
-                for(int i=0;i<36;i++) {
-                    glm::vec3 cur = V.at(start+i);
-                    glm::vec3 phong_normal = glm::vec3(0.0f);
-                    for(auto v: normal_map[cur]) {
-                        phong_normal += v;
-                    }
-                    phong_normal /= normal_map[cur].size();
-
-                    N_p.emplace_back(glm::normalize(phong_normal));
-                }
-
-                base_color.emplace_back(1.0f);
-                model.emplace_back(1.0f);
-                numbers.emplace_back(36);
-                render_mode.emplace_back(3);
+                add_cube(1);
                 break;
             case GLFW_KEY_2:
                 load_model("../data/bumpy_cube.off");
@@ -476,6 +539,20 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 for(int i=0;i<render_mode.size();i++) {
                     if(base_color[i] == glm::vec3(1.0f, 0.0f, 0.0f)) {
                         render_mode[i] = 3;
+                    }
+                }
+                break;
+            case GLFW_KEY_K:
+                for(int i=0;i<render_mode.size();i++) {
+                    if(base_color[i] == glm::vec3(1.0f, 0.0f, 0.0f)) {
+                        render_mode[i] = 4;
+                    }
+                }
+                break;
+            case GLFW_KEY_L:
+                for(int i=0;i<render_mode.size();i++) {
+                    if(base_color[i] == glm::vec3(1.0f, 0.0f, 0.0f)) {
+                        render_mode[i] = 5;
                     }
                 }
                 break;
@@ -649,23 +726,14 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 model.clear();
                 numbers.clear();
 
-                V.emplace_back(glm::vec3(5, -0.5, 5));
-                V.emplace_back(glm::vec3(5, -0.5, -5));
-                V.emplace_back(glm::vec3(-5, -0.5, 5));
-                V.emplace_back(glm::vec3(-5, -0.5, -5));
-                V.emplace_back(glm::vec3(5, -0.5, -5));
-                V.emplace_back(glm::vec3(-5, -0.5, 5));
-
-                for(int i=0;i<6;i++) {
-                    N_f.emplace_back(glm::vec3(0, 1, 0));
-                    M.emplace_back(glm::vec3(0, -0.5, 0));
-                    N_p.emplace_back(glm::vec3(0, 1, 0));
-                }
-
-                base_color.emplace_back(0.5f);
-                model.emplace_back(1.0f);
-                numbers.emplace_back(6);
-                render_mode.emplace_back(3);
+                add_cube(2);
+                add_plain();
+                break;
+            case GLFW_KEY_S:
+                if(shadow_mode == 1)
+                    shadow_mode = 0;
+                else
+                    shadow_mode = 1;
                 break;
             default:
                 break;
@@ -751,13 +819,15 @@ int main() {
     // at least a vertex shader and a fragment shader to be valid
     Program program;
     const GLchar* vertex_shader =
-            "#version 150 core\n"
+            "#version 420 core\n"
                     "in vec3 position;"
                     "in vec3 mid;"
                     "in vec3 normal_f;"
                     "in vec3 normal_p;"
                     "out vec3 vertex_normal_camera;"
                     "out vec3 light_to_vertex_camera;"
+                    "out vec3 pos_model;"
+                    "out vec3 normal_model;"
                     "out vec4 vertex_light;"
                     "uniform mat4 model;"
                     "uniform mat4 camera;"
@@ -767,7 +837,9 @@ int main() {
                     "uniform int flat_phong;"
                     "void main()"
                     "{"
-                    "    gl_Position = projection * camera * model * vec4(position, 1.0);"
+                    "    pos_model = (model * vec4(position, 1.0)).xyz;"
+                    "    normal_model = normalize((model * vec4(normal_p, 1.0)).xyz);"
+                    "    gl_Position = projection * camera * vec4(pos_model, 1.0);"
                     "    vec3 vertex_camera = (camera * model * vec4(position, 1.0)).xyz;"
                     "    vec3 mid_camera = (camera * model * vec4(mid, 1.0)).xyz;"
                     "    mat2x3 point = mat2x3(mid_camera, vertex_camera);"
@@ -778,13 +850,19 @@ int main() {
                     "    vertex_light = light_vp * model * vec4(position, 1.0);"
                     "}";
     const GLchar* fragment_shader =
-            "#version 150 core\n"
+            "#version 420 core\n"
                     "in vec3 vertex_normal_camera;"
                     "in vec3 light_to_vertex_camera;"
+                    "in vec3 pos_model;"
+                    "in vec3 normal_model;"
                     "in vec4 vertex_light;"
                     "out vec4 outColor;"
+                    "uniform int shadow_mode;"
+                    "uniform int render_mode;"
                     "uniform vec3 base_color;"
-                    "uniform sampler2D shadowMap;"
+                    "uniform vec3 eye;"
+                    "layout(binding=0) uniform sampler2D shadowMap;"
+                    "layout(binding=1) uniform samplerCube skybox;"
                     ""
                     "float ShadowCalculation(vec4 fragPosLightSpace, float cos)"
                     "{"
@@ -804,7 +882,24 @@ int main() {
                     "    vec3 l = normalize(light_to_vertex_camera);"
                     "    float cosTheta = clamp(dot(n, l), 0.0, 1.0);"
                     "    float shadow = ShadowCalculation(vertex_light, cosTheta);"
-                    "    outColor = ((1 - shadow) * 10 * cosTheta/(length(light_to_vertex_camera)*length(light_to_vertex_camera)) + 0.2) * vec4(base_color, 1.0);"
+                    "    if(shadow == 1.0) {"
+                    "        if(shadow_mode == 1)"
+                    "            outColor = vec4(0.0, 0.0, 0.0, 1.0) + vec4(0.2*base_color, 1.0);"
+                    "        else "
+                    "            outColor = vec4(1.0, 0.0, 0.0, 1.0) + vec4(0.2*base_color, 1.0);"
+                    "    } else {"
+                    "        if(render_mode == 4) {"
+                    "            vec3 i = normalize(pos_model - eye);"
+                    "            vec3 r = reflect(i, normal_model);"
+                    "            outColor = vec4(texture(skybox, r).rgb, 1.0);"
+                    "        } else if(render_mode == 5) {"
+                    "            vec3 i = normalize(pos_model - eye);"
+                    "            vec3 r = refract(i, normal_model, 0.658);"
+                    "            outColor = vec4(texture(skybox, r).rgb, 1.0);"
+                    "        } else {"
+                    "            outColor = vec4((10 * cosTheta/(length(light_to_vertex_camera)*length(light_to_vertex_camera)) + 0.2) * base_color, 1.0);"
+                    "        }"
+                    "    }"
                     "}";
 
     // Compile the two shaders and upload the binary to the GPU
@@ -831,6 +926,30 @@ int main() {
             "}";
 
     depth.init(vertex_shader_depth, fragment_shader_depth, "fragmentdepth");
+
+    Program skybox;
+    const GLchar* vertex_shader_skybox =
+            "#version 150 core\n"
+            "in vec3 position;"
+            "out vec3 tex_pos;"
+            "uniform mat4 camera;"
+            "uniform mat4 projection;"
+            "void main()"
+            "{"
+            "    gl_Position = projection * camera * vec4(position, 1.0);"
+            "    tex_pos = position;"
+            "}";
+    const GLchar* fragment_shader_skybox =
+            "#version 150 core\n"
+            "in vec3 tex_pos;"
+            "out vec4 outColor;"
+            "uniform samplerCube cube;"
+            "void main()"
+            "{"
+            "     outColor = texture(cube, tex_pos);"
+            "}";
+
+    skybox.init(vertex_shader_skybox, fragment_shader_skybox, "outColor");
 
     // Register the keyboard callback
     glfwSetKeyCallback(window, key_callback);
@@ -878,41 +997,26 @@ int main() {
     glReadBuffer(GL_NONE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // put the base plain
-    V.emplace_back(glm::vec3(5, -0.5, 5));
-    V.emplace_back(glm::vec3(5, -0.5, -5));
-    V.emplace_back(glm::vec3(-5, -0.5, 5));
-    V.emplace_back(glm::vec3(-5, -0.5, -5));
-    V.emplace_back(glm::vec3(5, -0.5, -5));
-    V.emplace_back(glm::vec3(-5, -0.5, 5));
+    // skybox
+    GLuint box = load_cube();
 
-    for(int i=0;i<6;i++) {
-        N_f.emplace_back(glm::vec3(0, 1, 0));
-        M.emplace_back(glm::vec3(0, -0.5, 0));
-        N_p.emplace_back(glm::vec3(0, 1, 0));
-    }
-    VBO.update(V);
-    VBO_M.update(M);
-    VBO_N_f.update(N_f);
-    VBO_N_p.update(N_p);
-
-    base_color.emplace_back(0.5f);
-    model.emplace_back(1.0f);
-    numbers.emplace_back(6);
-    render_mode.emplace_back(3);
+    add_cube(2);
+    add_plain();
 
     // Loop until the user closes the window
     while (!glfwWindowShouldClose(window)) {
         // Set the light position depending on the time difference
         auto t_now = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration_cast<std::chrono::duration<float>>(t_now - t_start).count();
-        light_source = glm::vec3(std::sin(time), 2, std::cos(time));
+        light_source = glm::vec3(std::sin(time), 4, std::cos(time));
         glm::mat4 light_view = glm::lookAt(light_source, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 light_vp = light_projection * light_view;
 
         // only pass VBOs to gpu when number of vertices changed
         if(!V.empty() && V.size() != pre_size) {
             depth.bindVertexAttribArray("position", VBO);
+
+            skybox.bindVertexAttribArray("position", VBO);
 
             program.bindVertexAttribArray("position", VBO);
             program.bindVertexAttribArray("mid", VBO_M);
@@ -925,7 +1029,7 @@ int main() {
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        int start = 0;
+        int start = 36;
 
         // bind depth
         depth.bind();
@@ -935,7 +1039,7 @@ int main() {
         glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
         glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
         glClear(GL_DEPTH_BUFFER_BIT);
-        for(int i=0;i<numbers.size();i++) {
+        for(int i=1;i<numbers.size();i++) {
             glUniformMatrix4fv(depth.uniform("model"), 1, GL_FALSE, glm::value_ptr(model[i]));
             for (int j = 0; j < numbers[i]; j += 3) {
                 glDrawArrays(GL_TRIANGLES, start + j, 3);
@@ -943,26 +1047,39 @@ int main() {
             start += numbers[i];
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, window_width, window_height);
+        glCullFace(GL_BACK);
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // bind skybox
+        skybox.bind();
+        glDepthMask(GL_FALSE);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, box);
+        glUniformMatrix4fv(skybox.uniform("projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(skybox.uniform("camera"), 1, GL_FALSE, glm::value_ptr(glm::mat4(glm::mat3(camera))));
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDepthMask(GL_TRUE);
 
         // Bind your program
         program.bind();
-        glCullFace(GL_BACK);
-
-        glViewport(0, 0, window_width, window_height);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, depthMap);
+        glBindTextureUnit(0, depthMap);
+        glBindTextureUnit(1, box);
 
         // Bind the camera and projection and light source
         glUniformMatrix4fv(program.uniform("projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(program.uniform("camera"), 1, GL_FALSE, glm::value_ptr(camera));
         glUniformMatrix4fv(program.uniform("light_vp"), 1, GL_FALSE, glm::value_ptr(light_vp));
         glUniform3fv(program.uniform("light_pos"), 1, glm::value_ptr(light_source));
+        glUniform1i(program.uniform("shadow_mode"), shadow_mode);
+        glUniform3fv(program.uniform("eye"), 1, glm::value_ptr(eye));
 
-        start = 0;
-        for(int i=0;i<numbers.size();i++) {
+        start = 36;
+        for(int i=1;i<numbers.size();i++) {
             glUniform3fv(program.uniform("base_color"), 1, glm::value_ptr(base_color[i]));
             glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, glm::value_ptr(model[i]));
+            glUniform1i(program.uniform("render_mode"), render_mode[i]);
             if(render_mode[i] == 1) {
                 glUniform1i(program.uniform("flat_phong"), 0);
                 for (int j = 0; j < numbers[i]; j += 3) {
@@ -993,6 +1110,7 @@ int main() {
     // Deallocate opengl memory
     program.free();
     depth.free();
+    skybox.free();
     VAO.free();
     VBO.free();
     VBO_M.free();

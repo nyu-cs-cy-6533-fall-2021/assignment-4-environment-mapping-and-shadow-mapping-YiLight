@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.12)
-project(assignment-3-3d-scene-editor-YiLight)
+project(assignment-4-environment-mapping-and-shadow-mapping-YiLight)
 
 find_package(OpenGL REQUIRED)
 find_package(GLU REQUIRED)
@@ -65,7 +65,7 @@ file(GLOB SOURCES
 "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-add_executable(${PROJECT_NAME}_bin ${SOURCES})
+add_executable(${PROJECT_NAME}_bin ${SOURCES} src/stb_image.h)
 target_link_libraries(${PROJECT_NAME}_bin ${LIBRARIES} ${OPENGL_LIBRARIES})
 
 add_executable(main_blending_bin ${CMAKE_CURRENT_SOURCE_DIR}/extra/main_blending.cpp ${SOURCES2})
