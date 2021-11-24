@@ -1,8 +1,8 @@
 # Read me 
 The directory organization is roughly the same as the base directory. 
-I have added a 'data' folder to store the .off files required by the editor and a 'image' folder for this readme.
+I have added a 'data' folder to store the .off files and .png files required by the editor and a 'image' folder for this readme.
 
-I have only modified the src/main.cpp file to complete the assignment.
+I have modified the src/main.cpp file and added a stb_image.h file to complete the assignment.
 
 ## How to operate the program
 After running the program like the base directory, you will be able to see a window jumps out.
@@ -13,7 +13,6 @@ After running the program like the base directory, you will be able to see a win
 * press 'ESC' to delete all objects
 
 ### Move/Change camera (using trackball)
-* press 'SPACE' to change between orthographic camera and perspective camera
 * press '4' or '5' to rotate the camera around X axis 
 * press '6' or '7' to rotate the camera around Y axis
 * press '8' or '9' to rotate the camera around Z axis
@@ -36,6 +35,8 @@ After running the program like the base directory, you will be able to see a win
 * press 'w' will change selected objects to wireframe shading
 * press 'f' will change selected objects to flat shading
 * press 'p' will change selected objects to phong shading
+* press 'k' will change selected objects to reflect environment mapping
+* press 'l' will change selected objects to refract environment mapping
 
 ## Screenshots of program
 1. Start of the program
@@ -46,26 +47,22 @@ After running the program like the base directory, you will be able to see a win
 
 <img src="image/max.png" width="100%" alt="max"> 
 
-3. Add more objects
+3. Add a object
 
 <img src="image/add.png" width="100%" alt="add"> 
 
-4. Move and change objects
+4. Add more objects
+
+<img src="image/more.png" width="100%" alt="more">
+
+5. Move and change objects
 
 <img src="image/change.png" width="100%" alt="change"> 
 
-5. Move and change objects, again
+6. Move and change objects, again
 
-<img src="image/change1.png" width="100%" alt="change1"> 
-
-6. Scale camera
-
-<img src="image/scale_down.png" width="100%" alt="scale_down"> 
+<img src="image/change1.png" width="100%" alt="change1">
 
 7. Rotate camera
 
 <img src="image/camera_rotate.png" width="100%" alt="camera_rotate"> 
-
-8. Change to orthographic camera
-
-<img src="image/oth.png" width="100%" alt="oth"> 
