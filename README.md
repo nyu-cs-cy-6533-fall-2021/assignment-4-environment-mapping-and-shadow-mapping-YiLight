@@ -38,6 +38,9 @@ After running the program like the base directory, you will be able to see a win
 * press 'k' will change selected objects to reflect environment mapping
 * press 'l' will change selected objects to refract environment mapping
 
+### Change shadow
+* press 's' will change shadow color between black and red
+
 ## Screenshots of program
 1. Start of the program
 
@@ -55,11 +58,11 @@ After running the program like the base directory, you will be able to see a win
 
 <img src="image/more.png" width="100%" alt="more">
 
-5. Move and change objects
+5. Change objects to reflect and refract mapping
 
 <img src="image/change.png" width="100%" alt="change"> 
 
-6. Move and change objects, again
+6. Change shadow to red
 
 <img src="image/change1.png" width="100%" alt="change1">
 
