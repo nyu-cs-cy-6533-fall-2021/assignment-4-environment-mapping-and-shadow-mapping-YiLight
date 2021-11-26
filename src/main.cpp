@@ -272,6 +272,8 @@ GLuint load_cube() {
 
     GLint w, h, ch;
 
+    stbi_set_flip_vertically_on_load(true);
+
     for(int i=0;i<6;i++) {
         std::string name = "../data/" + suffixes[i] + ".png";
         unsigned char *data = stbi_load(name.c_str(), &w, &h, &ch, 0);
